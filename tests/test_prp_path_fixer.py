@@ -87,8 +87,7 @@ class FileTest(unittest.TestCase):
 
     def test_gzip_file(self):
         src = self.write("proj.prproj", make_xml(NFD_PATH))
-        rc = f.main(["--to", "win", str(src)])
-        self.assertEqual(rc, 0)
+        self.assertEqual(f.process([src], "win"), 0)
         out = self.dir / "proj_win.prproj"
         raw = out.read_bytes()
         self.assertEqual(raw[:2], b"\x1f\x8b")
@@ -98,22 +97,21 @@ class FileTest(unittest.TestCase):
 
     def test_uncompressed_inplace(self):
         src = self.write("proj.prproj", make_xml(WIN_NFC), compress=False)
-        rc = f.main(["--to", "mac", "-i", str(src)])
-        self.assertEqual(rc, 0)
+        self.assertEqual(f.process([src], "mac", inplace=True), 0)
         self.assertTrue((self.dir / "proj.prproj.bak").exists())
         text = src.read_text("utf-8")
         self.assertIn(unicodedata.normalize("NFD", WIN_NFC), text)
 
-    def test_folder_and_dry_run(self):
+    def test_folder(self):
         self.write("a.prproj", make_xml(NFD_PATH))
         self.write("b.prproj", make_xml(NFC_PATH))
-        rc = f.main(["--to", "win", "-n", str(self.dir)])
-        self.assertEqual(rc, 0)
-        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["a.prproj", "b.prproj"])
+        self.assertEqual(f.process([self.dir], "win"), 0)
+        # 修正不要な b は出力しない
+        self.assertEqual(sorted(p.name for p in self.dir.iterdir()), ["a.prproj", "a_win.prproj", "b.prproj"])
 
     def test_not_premiere(self):
         src = self.write("x.prproj", "<foo/>")
-        self.assertEqual(f.main(["--to", "win", str(src)]), 1)
+        self.assertEqual(f.process([src], "win"), 1)
 
 
 if __name__ == "__main__":
