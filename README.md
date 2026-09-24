@@ -19,15 +19,44 @@ NFD のパスを、Windows 上の NFC のファイル名と照合できず、リ
 このツールは prproj（gzip 圧縮された XML）を展開し、**パスを表す要素だけ**を
 移行先 OS の形式に変換して保存し直します。
 
-## 必要なもの
+## アプリ版（Python 不要）
+
+### ブラウザ版 — いちばん手軽
+
+[`app/PrP-Path-Fixer.html`](app/PrP-Path-Fixer.html) をダウンロードして、ダブルクリックでブラウザで開くだけです（Chrome / Edge / Safari / Firefox の最新版）。
+
+1. 「このプロジェクトを開く OS」を選ぶ（開いているパソコンの OS が初期値）
+2. `.prproj` をドラッグ＆ドロップ（複数可）
+3. 修復済みの `元の名前_win.prproj` / `元の名前_mac.prproj` が自動でダウンロードされます
+
+ファイルはブラウザ内だけで処理され、インターネットには送信されません（オフラインでも動作します）。
+
+### Mac アプリ / Windows アプリ
+
+GitHub の **Actions → Build apps** の実行結果（Artifacts）、または **Releases** から入手できます。
+
+- **Mac** (`PrP-Path-Fixer-mac.zip`): 解凍して `PrP Path Fixer.app` を起動。
+  `.prproj` をアプリのアイコンにドロップしても開けます。
+  署名していないアプリのため、初回は **右クリック →「開く」** で起動してください
+  （macOS 15 以降は「システム設定 → プライバシーとセキュリティ」で「このまま開く」）。
+  Apple シリコン (M1 以降) 用です。Intel Mac ではブラウザ版を使ってください。
+- **Windows** (`PrP-Path-Fixer-windows.zip`): 解凍して `PrP-Path-Fixer.exe` を起動。
+  `.prproj` を exe にドロップしても開けます。
+  SmartScreen の警告が出たら「詳細情報 →実行」を押してください。
+
+`v1.0.0` のようなタグを push すると、両方のアプリが Releases に自動で添付されます。
+
+## Python スクリプト版
+
+### 必要なもの
 
 - Python 3.8 以上（標準ライブラリのみ使用、追加インストール不要）
   - Windows: <https://www.python.org/downloads/> からインストール（「Add python.exe to PATH」にチェック）
   - Mac: `python3` が入っていなければ python.org 版をインストール（GUI に必要な Tk が同梱されています）
 
-## 使い方
+### 使い方
 
-### GUI（かんたん）
+#### GUI
 
 - **Mac**: `PrP-Path-Fixer-Mac.command` をダブルクリック
   （初回は右クリック →「開く」。実行権限がない場合は `chmod +x PrP-Path-Fixer-Mac.command`）
@@ -40,12 +69,12 @@ NFD のパスを、Windows 上の NFC のファイル名と照合できず、リ
 `元のファイル名_win.prproj` / `元のファイル名_mac.prproj` が同じフォルダに作られます。
 元ファイルは変更しません。
 
-### Windows でドラッグ＆ドロップ
+#### Windows でドラッグ＆ドロップ
 
 Mac から受け取った `.prproj`（またはそれが入ったフォルダ）を
 `PrP-Path-Fixer-Windows.bat` にドロップすると、そのまま Windows 用に変換されます。
 
-### コマンドライン
+#### コマンドライン
 
 ```sh
 # Mac で作ったプロジェクトを Windows で開けるようにする
@@ -83,8 +112,10 @@ python3 prp_path_fixer.py --to win -n -v project.prproj
   置き換わってしまうため、macOS と同様に変換対象から除外しています。
 - 念のため、元の prproj のバックアップを取ってから使ってください。
 
-## テスト
+## 開発者向け
 
 ```sh
-python3 -m unittest discover -s tests -v
+python3 -m unittest discover -s tests -v    # テスト
+pip install pyinstaller
+pyinstaller packaging/prp_path_fixer.spec   # 実行中の OS 向けのアプリを dist/ に作成
 ```

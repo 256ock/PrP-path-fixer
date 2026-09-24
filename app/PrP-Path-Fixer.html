@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PrP Path Fixer</title>
+<meta name="description" content="Premiere Pro の prproj 内の濁点・半濁点を含む素材パスを Mac(NFD) ⇔ Windows(NFC) 間で修復します。">
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --surface: #ffffff;
+    --text: #1b1f24;
+    --muted: #5d6673;
+    --border: #d9dde3;
+    --accent: #3b5bdb;
+    --accent-text: #ffffff;
+    --accent-soft: #e8edff;
+    --ok: #2b8a3e;
+    --warn: #b35c00;
+    --err: #c92a2a;
+    --code-bg: #f1f3f5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15171a;
+      --surface: #1e2125;
+      --text: #e7e9ec;
+      --muted: #9aa3ae;
+      --border: #343a42;
+      --accent: #7b93ff;
+      --accent-text: #0e1320;
+      --accent-soft: #232b45;
+      --ok: #69db7c;
+      --warn: #ffa94d;
+      --err: #ff8787;
+      --code-bg: #262a30;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15171a;
+    --surface: #1e2125;
+    --text: #e7e9ec;
+    --muted: #9aa3ae;
+    --border: #343a42;
+    --accent: #7b93ff;
+    --accent-text: #0e1320;
+    --accent-soft: #232b45;
+    --ok: #69db7c;
+    --warn: #ffa94d;
+    --err: #ff8787;
+    --code-bg: #262a30;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", "Meiryo", sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 48px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .lead { color: var(--muted); margin: 0 0 24px; }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .step { font-weight: 600; margin: 0 0 10px; }
+  .targets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .targets label {
+    display: block;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    cursor: pointer;
+  }
+  .targets label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .targets input { margin-right: 6px; }
+  .targets small { display: block; color: var(--muted); margin-top: 2px; }
+  #drop {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 32px 16px;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  #drop.over { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+  #drop strong { color: var(--text); }
+  .options { margin-top: 12px; color: var(--muted); font-size: 14px; }
+  #results:empty { display: none; }
+  .result { border-top: 1px solid var(--border); padding: 12px 0; }
+  .result:first-child { border-top: 0; padding-top: 0; }
+  .result .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+  .name { font-weight: 600; word-break: break-all; }
+  .ok { color: var(--ok); }
+  .warn { color: var(--warn); }
+  .err { color: var(--err); }
+  button, .btn {
+    font: inherit;
+    border: 0;
+    border-radius: 6px;
+    padding: 6px 14px;
+    background: var(--accent);
+    color: var(--accent-text);
+    cursor: pointer;
+    text-decoration: none;
+  }
+  details { margin-top: 6px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  ul.paths { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+  ul.paths li { word-break: break-all; }
+  code { background: var(--code-bg); padding: 1px 4px; border-radius: 4px; }
+  .note { color: var(--muted); font-size: 13px; }
+  @media (max-width: 520px) { .targets { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>PrP Path Fixer</h1>
+  <p class="lead">Premiere Pro のプロジェクト (.prproj) を Mac ⇔ Windows で受け渡したときに、濁点・半濁点を含む素材パスがリンク切れになる問題を修復します。</p>
+
+  <section class="card">
+    <p class="step">1. このプロジェクトを開く OS</p>
+    <div class="targets">
+      <label><input type="radio" name="target" value="win">Windows で開く<small>Mac から受け取った → NFC に変換</small></label>
+      <label><input type="radio" name="target" value="mac">Mac で開く<small>Windows から受け取った → NFD に変換</small></label>
+    </div>
+  </section>
+
+  <section class="card">
+    <p class="step">2. .prproj をドロップ</p>
+    <div id="drop" tabindex="0" role="button">
+      <strong>ここに .prproj をドラッグ＆ドロップ</strong><br>またはクリックして選択（複数可）
+    </div>
+    <input id="file" type="file" accept=".prproj" multiple hidden>
+    <div class="options">
+      <label><input type="checkbox" id="all"> パス以外（クリップ名・シーケンス名など）も変換する</label>
+    </div>
+  </section>
+
+  <section class="card" id="results"></section>
+
+  <p class="note">ファイルはこのブラウザ内だけで処理され、どこにも送信されません。修復したファイルは <code>元の名前_win.prproj</code> / <code>元の名前_mac.prproj</code> として保存されます（元ファイルは変更されません）。</p>
+</main>
+
+<script>
+"use strict";
+
+const FORMS = { win: "NFC", mac: "NFD" };
+
+// macOS の NFD と同様に、CJK 互換漢字などは変換しない（別の字に置き換わって戻せなくなるため）
+const EXCLUDED = [[0x2000, 0x2FFF], [0xF900, 0xFAFF], [0x2F800, 0x2FAFF]];
+const isExcluded = (cp) => EXCLUDED.some(([lo, hi]) => cp >= lo && cp <= hi);
+
+function normalizeText(text, form) {
+  if (text.normalize(form) === text) return text;
+  let out = "", buf = "";
+  for (const ch of text) {
+    if (isExcluded(ch.codePointAt(0))) {
+      out += buf.normalize(form) + ch;
+      buf = "";
+    } else {
+      buf += ch;
+    }
+  }
+  return out + buf.normalize(form);
+}
+
+const PATH_ELEMENT_RE = /<([A-Za-z_][\w.\-]*(?:Path|FileName)[\w.\-]*)((?:\s[^>]*)?)>([^<]*)<\/\1>/g;
+
+function fixXml(xml, form, allText) {
+  const changed = [];
+  const fixed = xml.replace(PATH_ELEMENT_RE, (whole, tag, attrs, text) => {
+    const after = normalizeText(text, form);
+    if (after === text) return whole;
+    changed.push(text);
+    return `<${tag}${attrs}>${after}</${tag}>`;
+  });
+  return { xml: allText ? normalizeText(xml, form) : fixed, changed };
+}
+
+async function streamBytes(bytes, stream) {
+  const res = new Response(new Blob([bytes]).stream().pipeThrough(stream));
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+async function fixFile(file, target, allText) {
+  let bytes = new Uint8Array(await file.arrayBuffer());
+  const gz = bytes[0] === 0x1f && bytes[1] === 0x8b;
+  if (gz) bytes = await streamBytes(bytes, new DecompressionStream("gzip"));
+  const xml = new TextDecoder("utf-8").decode(bytes);
+  if (!xml.includes("<PremiereData")) throw new Error("Premiere Pro のプロジェクトファイルではないようです");
+
+  const { xml: out, changed } = fixXml(xml, FORMS[target], allText);
+  if (out === xml) return { changed, blob: null };
+
+  let outBytes = new TextEncoder().encode(out);
+  if (gz) outBytes = await streamBytes(outBytes, new CompressionStream("gzip"));
+  return { changed, blob: new Blob([outBytes], { type: "application/octet-stream" }) };
+}
+
+function outputName(name, target) {
+  const i = name.toLowerCase().lastIndexOf(".prproj");
+  const stem = i >= 0 ? name.slice(0, i) : name;
+  return `${stem}_${target}.prproj`;
+}
+
+function download(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+
+const el = (tag, props = {}, ...children) => {
+  const e = Object.assign(document.createElement(tag), props);
+  e.append(...children);
+  return e;
+};
+
+const results = document.getElementById("results");
+const currentTarget = () => document.querySelector('input[name="target"]:checked').value;
+
+async function handleFiles(files) {
+  const target = currentTarget();
+  const allText = document.getElementById("all").checked;
+  for (const file of files) {
+    const row = el("div", { className: "result" });
+    const head = el("div", { className: "head" }, el("span", { className: "name" }, file.name));
+    row.append(head);
+    results.prepend(row);
+    try {
+      const { changed, blob } = await fixFile(file, target, allText);
+      if (!blob) {
+        head.append(el("span", { className: "ok" }, "修正が必要なパスはありませんでした"));
+        continue;
+      }
+      const name = outputName(file.name, target);
+      const btn = el("button", { type: "button", textContent: `${name} を保存` });
+      btn.addEventListener("click", () => download(blob, name));
+      head.append(btn);
+      const unique = [...new Set(changed)];
+      row.append(
+        el("div", { className: "ok" }, `✔ ${changed.length} 件のパスを修正しました`),
+        el("details", {}, el("summary", {}, "修正したパスを表示"),
+          el("ul", { className: "paths" }, ...unique.map((p) => el("li", {}, p))))
+      );
+      download(blob, name);
+    } catch (e) {
+      head.append(el("span", { className: "err" }, `✘ ${e.message}`));
+    }
+  }
+}
+
+// 初期値: 実行中の OS
+const isMac = /Mac/i.test(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent);
+document.querySelector(`input[name="target"][value="${isMac ? "mac" : "win"}"]`).checked = true;
+
+const drop = document.getElementById("drop");
+const input = document.getElementById("file");
+drop.addEventListener("click", () => input.click());
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+input.addEventListener("change", () => { handleFiles([...input.files]); input.value = ""; });
+["dragenter", "dragover"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((t) => drop.addEventListener(t, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => handleFiles([...e.dataTransfer.files]));
+// ドロップ位置がずれてもブラウザがファイルを開いてしまわないように
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => e.preventDefault());
+</script>
+</body>
+</html>

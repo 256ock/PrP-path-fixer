@@ -236,7 +236,7 @@ def process(
 # --------------------------------------------------------------------------- GUI
 
 
-def run_gui() -> int:
+def run_gui(initial: Optional[List[Path]] = None) -> int:
     try:
         import tkinter as tk
         from tkinter import filedialog, messagebox, scrolledtext
@@ -260,17 +260,20 @@ def run_gui() -> int:
     tk.Label(frm, text="1. 修復する .prproj を選択", font=("", 12, "bold")).pack(anchor="w")
     row = tk.Frame(frm)
     row.pack(fill="x", pady=(4, 10))
-    file_label = tk.Label(row, text="(未選択)", anchor="w", fg="gray")
+    file_label = tk.Label(row, text="(未選択)", anchor="w")
     file_label.pack(side="left", fill="x", expand=True)
+
+    def set_files(paths: Iterable[str]) -> None:
+        files[:] = [Path(p) for p in paths]
+        names = ", ".join(p.name for p in files)
+        file_label.config(text=names if len(names) < 80 else "{} ファイル".format(len(files)))
 
     def choose() -> None:
         selected = filedialog.askopenfilenames(
             title="prproj を選択", filetypes=[("Premiere Pro Project", "*.prproj"), ("All", "*")]
         )
         if selected:
-            files[:] = [Path(p) for p in selected]
-            names = ", ".join(p.name for p in files)
-            file_label.config(text=names if len(names) < 80 else "{} ファイル".format(len(files)), fg="black")
+            set_files(selected)
 
     tk.Button(row, text="ファイルを選択…", command=choose).pack(side="right")
 
@@ -301,6 +304,11 @@ def run_gui() -> int:
 
     tk.Button(frm, text="3. 修復する", command=run, height=2).pack(fill="x")
 
+    if initial:
+        set_files(str(p) for p in initial)
+    # Mac アプリ版: Dock / Finder でアプリアイコンにドロップされたファイルを受け取る
+    root.createcommand("::tk::mac::OpenDocument", lambda *paths: set_files(paths))
+
     root.mainloop()
     return 0
 
@@ -310,6 +318,9 @@ def run_gui() -> int:
 
 def main(argv: Optional[List[str]] = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
+    if getattr(sys, "frozen", False):
+        # アプリ版 (PyInstaller): アイコンにドロップされたファイルを読み込んだ状態で GUI を開く
+        return run_gui([Path(a) for a in argv if not a.startswith("-psn")])
     if not argv:
         return run_gui()
 
