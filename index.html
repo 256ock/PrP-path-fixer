@@ -17,6 +17,7 @@
     --accent-soft: #e8edff;
     --ok: #2b8a3e;
     --warn: #b35c00;
+    --warn-soft: #fff4e6;
     --err: #c92a2a;
     --code-bg: #f1f3f5;
   }
@@ -32,6 +33,7 @@
       --accent-soft: #232b45;
       --ok: #69db7c;
       --warn: #ffa94d;
+      --warn-soft: #2e2418;
       --err: #ff8787;
       --code-bg: #262a30;
     }
@@ -47,6 +49,7 @@
     --accent-soft: #232b45;
     --ok: #69db7c;
     --warn: #ffa94d;
+    --warn-soft: #2e2418;
     --err: #ff8787;
     --code-bg: #262a30;
   }
@@ -111,6 +114,18 @@
   }
   details { margin-top: 6px; }
   summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  .notice {
+    margin-top: 10px;
+    border-left: 3px solid var(--warn);
+    background: var(--warn-soft);
+    border-radius: 0 6px 6px 0;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  .notice .title { color: var(--warn); font-weight: 600; margin: 0; }
+  .notice .group { margin-top: 8px; }
+  .notice .advice { color: var(--muted); }
+  .notice p.advice { margin: 4px 0 0; }
   ul.paths { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
   ul.paths li { word-break: break-all; }
   .note a { color: var(--accent); }
@@ -198,11 +213,102 @@ async function fixFile(file, target, allText) {
   if (!xml.includes("<PremiereData")) throw new Error("Premiere Pro のプロジェクトファイルではないようです");
 
   const { xml: out, changed } = fixXml(xml, FORMS[target], allText);
-  if (out === xml) return { changed, blob: null };
+  const locations = findSourceOsLocations(mediaPaths(xml), target);
+  if (out === xml) return { changed, locations, blob: null };
 
   let outBytes = new TextEncoder().encode(out);
   if (gz) outBytes = await streamBytes(outBytes, new CompressionStream("gzip"));
-  return { changed, blob: new Blob([outBytes], { type: "application/octet-stream" }) };
+  return { changed, locations, blob: new Blob([outBytes], { type: "application/octet-stream" }) };
+}
+
+// ---- 変換元 OS 特有の場所にある素材の検出 ----------------------------------
+
+const MEDIA_PATH_RE = /<(ActualMediaFilePath|FilePath)(?:\s[^>]*)?>([^<]*)<\/\1>/g;
+// アプリ本体・キャッシュ類（素材ではない）は対象外
+const IGNORE_RE = /[\\/](Library[\\/]Application Support|AppData|Applications|Program Files[^\\/]*)[\\/]/i;
+
+function decodeEntities(s) {
+  return s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (m, e) => {
+    const named = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[e.toLowerCase()];
+    if (named) return named;
+    return String.fromCodePoint(e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
+  });
+}
+
+function mediaPaths(xml) {
+  const set = new Set();
+  for (const m of xml.matchAll(MEDIA_PATH_RE)) {
+    const p = decodeEntities(m[2]).trim().normalize("NFC");
+    if (p && !IGNORE_RE.test(p)) set.add(p);
+  }
+  return [...set];
+}
+
+const cap = (s) => s[0].toUpperCase() + s.slice(1).toLowerCase();
+const MAC_USER_DIRS = { Desktop: "デスクトップ", Documents: "書類", Downloads: "ダウンロード", Movies: "ムービー", Pictures: "ピクチャ", Music: "ミュージック" };
+const WIN_USER_DIRS = { Desktop: "デスクトップ", Documents: "ドキュメント", Downloads: "ダウンロード", Videos: "ビデオ", Pictures: "ピクチャ", Music: "ミュージック" };
+
+const ADVICE = {
+  user: "ユーザーごとのフォルダなので、受け取った側のパソコンには同じ場所がありません。素材を外付けドライブや共有フォルダにまとめて渡すか、開いたあと「メディアをリンク」で場所を指定してください。",
+  cloud: "受け取った側で同じクラウドを同期していても、保存場所のパスは OS ごとに異なります。開いたあと「メディアをリンク」で同期フォルダ内の素材を指定してください。",
+  volume: "外付けドライブや NAS 上の素材の可能性があります。受け取った側でも同じドライブを接続するか、素材をコピーして一緒に渡してください。Windows では D: などのドライブ文字になるため、開いたあと「メディアをリンク」で 1 つ指定すると、同じフォルダの残りも見つかりやすくなります。",
+  drive: "外付けドライブ・NAS・パソコン内の別ドライブ上の素材の可能性があります。受け取った側でも同じドライブを接続するか、素材をコピーして一緒に渡してください。Mac では /Volumes/ドライブ名 になるため、開いたあと「メディアをリンク」で 1 つ指定すると、同じフォルダの残りも見つかりやすくなります。",
+  unc: "NAS やファイルサーバー上の素材です。受け取った側でも同じ共有に接続できるか確認してください。Windows のネットワークパス（\\\\サーバー\\共有）は、Mac では /Volumes/共有名 としてマウントされます。開いたあと「メディアをリンク」で場所を指定してください。",
+  system: "システムドライブ上の場所は、受け取った側のパソコンには同じ場所がない可能性が高いです。開いたあと「メディアをリンク」で場所を指定してください。",
+};
+
+// [正規表現, 表示名 (文字列 or 関数), 案内の種類]。上から順に、最初に一致したものを使う
+const LOCATION_RULES = {
+  mac: [
+    [/^\/Users\/[^/]+\/Library\/Mobile Documents\//i, "iCloud Drive", "cloud"],
+    [/^\/Users\/[^/]+\/Library\/CloudStorage\//i, "クラウドストレージ（Dropbox・Google ドライブ・OneDrive など）", "cloud"],
+    [/^\/Users\/[^/]+\/(Desktop|Documents|Downloads|Movies|Pictures|Music)\//i, (m) => `Mac の「${MAC_USER_DIRS[cap(m[1])]}」フォルダ`, "user"],
+    [/^\/Users\//i, "Mac のユーザーフォルダ", "user"],
+    [/^\/Volumes\//i, "外付けドライブ・NAS（Mac の /Volumes）", "volume"],
+    [/^\//, "Mac の起動ディスク", "system"],
+  ],
+  win: [
+    [/^[a-z]:[\\/]Users[\\/][^\\/]+[\\/]OneDrive[^\\/]*[\\/]/i, "OneDrive", "cloud"],
+    [/^[a-z]:[\\/]Users[\\/][^\\/]+[\\/](Dropbox|Google Drive|iCloudDrive)[\\/]/i, (m) => m[1], "cloud"],
+    [/^[a-z]:[\\/]Users[\\/][^\\/]+[\\/](Desktop|Documents|Downloads|Videos|Pictures|Music)[\\/]/i, (m) => `Windows の「${WIN_USER_DIRS[cap(m[1])]}」フォルダ`, "user"],
+    [/^[a-z]:[\\/]Users[\\/]/i, "Windows のユーザーフォルダ", "user"],
+    [/^\\\\/, "NAS・ファイルサーバー（Windows のネットワーク共有 \\\\サーバー）", "unc"],
+    [/^c:[\\/]/i, "Windows の C ドライブ", "system"],
+    [/^[a-z]:[\\/]/i, "外付けドライブ・NAS・別ドライブ（Windows の D: など）", "drive"],
+  ],
+};
+
+// 外付けドライブや変換元 OS 特有の場所にある素材を、場所ごとにまとめて返す
+function findSourceOsLocations(paths, target) {
+  const source = target === "win" ? "mac" : "win";
+  const groups = new Map();
+  for (const p of paths) {
+    for (const [re, label, kind] of LOCATION_RULES[source]) {
+      const m = p.match(re);
+      if (!m) continue;
+      const name = typeof label === "function" ? label(m) : label;
+      if (!groups.has(name)) groups.set(name, { name, kind, paths: [] });
+      groups.get(name).paths.push(p);
+      break;
+    }
+  }
+  // 物理的なドライブ・共有に関わるものを先に表示する
+  const order = ["volume", "drive", "unc", "cloud", "user", "system"];
+  return [...groups.values()].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+}
+
+function locationNotice(groups) {
+  const total = groups.reduce((n, g) => n + g.paths.length, 0);
+  return el("div", { className: "notice" },
+    el("p", { className: "title" }, `⚠ 受け取った側でリンクが切れる可能性がある素材が ${total} 件あります`),
+    el("p", { className: "advice" }, "外付けドライブや変換元の OS 特有の場所にあるため、受け取った側のパソコンに同じ場所がない可能性があります。渡す前に、素材も一緒に受け渡せているか確認してください。"),
+    ...groups.map((g) => el("div", { className: "group" },
+      el("div", {}, `${g.name}：${g.paths.length} 件`),
+      el("div", { className: "advice" }, ADVICE[g.kind]),
+      el("details", {}, el("summary", {}, "該当する素材を表示"),
+        el("ul", { className: "paths" }, ...g.paths.map((p) => el("li", {}, p))))
+    ))
+  );
 }
 
 function outputName(name, target) {
@@ -239,9 +345,10 @@ async function handleFiles(files) {
     row.append(head);
     results.prepend(row);
     try {
-      const { changed, blob } = await fixFile(file, target, allText);
+      const { changed, locations, blob } = await fixFile(file, target, allText);
       if (!blob) {
         head.append(el("span", { className: "ok" }, "修正が必要なパスはありませんでした"));
+        if (locations.length) row.append(locationNotice(locations));
         continue;
       }
       const name = outputName(file.name, target);
@@ -254,6 +361,7 @@ async function handleFiles(files) {
         el("details", {}, el("summary", {}, "修正したパスを表示"),
           el("ul", { className: "paths" }, ...unique.map((p) => el("li", {}, p))))
       );
+      if (locations.length) row.append(locationNotice(locations));
       download(blob, name);
     } catch (e) {
       head.append(el("span", { className: "err" }, `✘ ${e.message}`));
