@@ -246,10 +246,19 @@ function mediaPaths(xml) {
 
 const cap = (s) => s[0].toUpperCase() + s.slice(1).toLowerCase();
 const MAC_USER_DIRS = { Desktop: "デスクトップ", Documents: "書類", Downloads: "ダウンロード", Movies: "ムービー", Pictures: "ピクチャ", Music: "ミュージック" };
+// OneDrive のフォルダー バックアップで同期されるフォルダ（日本語版 Windows では日本語名になる）
+const ONEDRIVE_DIRS = {
+  desktop: "デスクトップ", "デスクトップ": "デスクトップ",
+  documents: "ドキュメント", "ドキュメント": "ドキュメント",
+  pictures: "ピクチャ", "画像": "ピクチャ", "ピクチャ": "ピクチャ",
+  videos: "ビデオ", "ビデオ": "ビデオ",
+  music: "ミュージック", "ミュージック": "ミュージック",
+};
 const WIN_USER_DIRS = { Desktop: "デスクトップ", Documents: "ドキュメント", Downloads: "ダウンロード", Videos: "ビデオ", Pictures: "ピクチャ", Music: "ミュージック" };
 
 const ADVICE = {
   user: "ユーザーごとのフォルダなので、受け取った側のパソコンには同じ場所がありません。素材を外付けドライブや共有フォルダにまとめて渡すか、開いたあと「メディアをリンク」で場所を指定してください。",
+  onedrive: "OneDrive で同期しているフォルダです。受け取った側ではユーザー名や OneDrive のフォルダ名が異なるため、同じパスにはなりません。また「オンラインのみ」の状態のファイルはパソコン内に実体がないため、素材を渡す前にダウンロード済みか確認してください。素材をまとめて渡すか、開いたあと「メディアをリンク」で場所を指定してください。",
   cloud: "受け取った側で同じクラウドを同期していても、保存場所のパスは OS ごとに異なります。開いたあと「メディアをリンク」で同期フォルダ内の素材を指定してください。",
   volume: "外付けドライブや NAS 上の素材の可能性があります。受け取った側でも同じドライブを接続するか、素材をコピーして一緒に渡してください。Windows では D: などのドライブ文字になるため、開いたあと「メディアをリンク」で 1 つ指定すると、同じフォルダの残りも見つかりやすくなります。",
   drive: "外付けドライブ・NAS・パソコン内の別ドライブ上の素材の可能性があります。受け取った側でも同じドライブを接続するか、素材をコピーして一緒に渡してください。Mac では /Volumes/ドライブ名 になるため、開いたあと「メディアをリンク」で 1 つ指定すると、同じフォルダの残りも見つかりやすくなります。",
@@ -268,7 +277,9 @@ const LOCATION_RULES = {
     [/^\//, "Mac の起動ディスク", "system"],
   ],
   win: [
-    [/^[a-z]:[\\/]Users[\\/][^\\/]+[\\/]OneDrive[^\\/]*[\\/]/i, "OneDrive", "cloud"],
+    [/^[a-z]:[\\/]Users[\\/][^\\/]+[\\/]OneDrive[^\\/]*[\\/](Desktop|デスクトップ|Documents|ドキュメント|Pictures|画像|ピクチャ|Videos|ビデオ|Music|ミュージック)[\\/]/i,
+      (m) => `OneDrive で同期中の「${ONEDRIVE_DIRS[m[1].toLowerCase()]}」フォルダ`, "onedrive"],
+    [/^[a-z]:[\\/]Users[\\/][^\\/]+[\\/]OneDrive[^\\/]*[\\/]/i, "OneDrive", "onedrive"],
     [/^[a-z]:[\\/]Users[\\/][^\\/]+[\\/](Dropbox|Google Drive|iCloudDrive)[\\/]/i, (m) => m[1], "cloud"],
     [/^[a-z]:[\\/]Users[\\/][^\\/]+[\\/](Desktop|Documents|Downloads|Videos|Pictures|Music)[\\/]/i, (m) => `Windows の「${WIN_USER_DIRS[cap(m[1])]}」フォルダ`, "user"],
     [/^[a-z]:[\\/]Users[\\/]/i, "Windows のユーザーフォルダ", "user"],
@@ -283,8 +294,10 @@ function findSourceOsLocations(paths, target) {
   const source = target === "win" ? "mac" : "win";
   const groups = new Map();
   for (const p of paths) {
+    // Windows の長いパス形式（\\?\C:\…、\\?\UNC\サーバー\…）は通常の形に直して判定する
+    const key = p.replace(/^\\\\\?\\UNC\\/i, "\\\\").replace(/^\\\\[?.]\\/, "");
     for (const [re, label, kind] of LOCATION_RULES[source]) {
-      const m = p.match(re);
+      const m = key.match(re);
       if (!m) continue;
       const name = typeof label === "function" ? label(m) : label;
       if (!groups.has(name)) groups.set(name, { name, kind, paths: [] });
@@ -293,7 +306,7 @@ function findSourceOsLocations(paths, target) {
     }
   }
   // 物理的なドライブ・共有に関わるものを先に表示する
-  const order = ["volume", "drive", "unc", "cloud", "user", "system"];
+  const order = ["volume", "drive", "unc", "onedrive", "cloud", "user", "system"];
   return [...groups.values()].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
 }
 
