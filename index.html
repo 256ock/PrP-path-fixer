@@ -125,6 +125,7 @@
   .notice .title { color: var(--warn); font-weight: 600; margin: 0; }
   .notice .group { margin-top: 8px; }
   .notice .advice { color: var(--muted); }
+  .notice p.advice { margin: 4px 0 0; }
   ul.paths { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
   ul.paths li { word-break: break-all; }
   .note a { color: var(--accent); }
@@ -250,9 +251,9 @@ const WIN_USER_DIRS = { Desktop: "デスクトップ", Documents: "ドキュメ�
 const ADVICE = {
   user: "ユーザーごとのフォルダなので、受け取った側のパソコンには同じ場所がありません。素材を外付けドライブや共有フォルダにまとめて渡すか、開いたあと「メディアをリンク」で場所を指定してください。",
   cloud: "受け取った側で同じクラウドを同期していても、保存場所のパスは OS ごとに異なります。開いたあと「メディアをリンク」で同期フォルダ内の素材を指定してください。",
-  volume: "Mac の /Volumes/ドライブ名 は、Windows では D: などのドライブ文字になります。開いたあと「メディアをリンク」で 1 つ指定すると、同じフォルダの残りも見つかりやすくなります。",
-  drive: "Windows のドライブ文字（D: など）は、Mac では /Volumes/ドライブ名 になります。開いたあと「メディアをリンク」で 1 つ指定すると、同じフォルダの残りも見つかりやすくなります。",
-  unc: "Windows のネットワークパス（\\\\サーバー\\共有）は、Mac では /Volumes/共有名 としてマウントされます。開いたあと「メディアをリンク」で場所を指定してください。",
+  volume: "外付けドライブや NAS 上の素材の可能性があります。受け取った側でも同じドライブを接続するか、素材をコピーして一緒に渡してください。Windows では D: などのドライブ文字になるため、開いたあと「メディアをリンク」で 1 つ指定すると、同じフォルダの残りも見つかりやすくなります。",
+  drive: "外付けドライブ・NAS・パソコン内の別ドライブ上の素材の可能性があります。受け取った側でも同じドライブを接続するか、素材をコピーして一緒に渡してください。Mac では /Volumes/ドライブ名 になるため、開いたあと「メディアをリンク」で 1 つ指定すると、同じフォルダの残りも見つかりやすくなります。",
+  unc: "NAS やファイルサーバー上の素材です。受け取った側でも同じ共有に接続できるか確認してください。Windows のネットワークパス（\\\\サーバー\\共有）は、Mac では /Volumes/共有名 としてマウントされます。開いたあと「メディアをリンク」で場所を指定してください。",
   system: "システムドライブ上の場所は、受け取った側のパソコンには同じ場所がない可能性が高いです。開いたあと「メディアをリンク」で場所を指定してください。",
 };
 
@@ -263,7 +264,7 @@ const LOCATION_RULES = {
     [/^\/Users\/[^/]+\/Library\/CloudStorage\//i, "クラウドストレージ（Dropbox・Google ドライブ・OneDrive など）", "cloud"],
     [/^\/Users\/[^/]+\/(Desktop|Documents|Downloads|Movies|Pictures|Music)\//i, (m) => `Mac の「${MAC_USER_DIRS[cap(m[1])]}」フォルダ`, "user"],
     [/^\/Users\//i, "Mac のユーザーフォルダ", "user"],
-    [/^\/Volumes\//i, "Mac の外付けドライブ・NAS（/Volumes）", "volume"],
+    [/^\/Volumes\//i, "外付けドライブ・NAS（Mac の /Volumes）", "volume"],
     [/^\//, "Mac の起動ディスク", "system"],
   ],
   win: [
@@ -271,13 +272,13 @@ const LOCATION_RULES = {
     [/^[a-z]:[\\/]Users[\\/][^\\/]+[\\/](Dropbox|Google Drive|iCloudDrive)[\\/]/i, (m) => m[1], "cloud"],
     [/^[a-z]:[\\/]Users[\\/][^\\/]+[\\/](Desktop|Documents|Downloads|Videos|Pictures|Music)[\\/]/i, (m) => `Windows の「${WIN_USER_DIRS[cap(m[1])]}」フォルダ`, "user"],
     [/^[a-z]:[\\/]Users[\\/]/i, "Windows のユーザーフォルダ", "user"],
-    [/^\\\\/, "Windows のネットワーク共有（\\\\サーバー）", "unc"],
+    [/^\\\\/, "NAS・ファイルサーバー（Windows のネットワーク共有 \\\\サーバー）", "unc"],
     [/^c:[\\/]/i, "Windows の C ドライブ", "system"],
-    [/^[a-z]:[\\/]/i, "Windows のドライブ文字（D: など）", "drive"],
+    [/^[a-z]:[\\/]/i, "外付けドライブ・NAS・別ドライブ（Windows の D: など）", "drive"],
   ],
 };
 
-// 変換元 OS 特有の場所にある素材を、場所ごとにまとめて返す
+// 外付けドライブや変換元 OS 特有の場所にある素材を、場所ごとにまとめて返す
 function findSourceOsLocations(paths, target) {
   const source = target === "win" ? "mac" : "win";
   const groups = new Map();
@@ -291,13 +292,16 @@ function findSourceOsLocations(paths, target) {
       break;
     }
   }
-  return [...groups.values()];
+  // 物理的なドライブ・共有に関わるものを先に表示する
+  const order = ["volume", "drive", "unc", "cloud", "user", "system"];
+  return [...groups.values()].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
 }
 
 function locationNotice(groups) {
   const total = groups.reduce((n, g) => n + g.paths.length, 0);
   return el("div", { className: "notice" },
-    el("p", { className: "title" }, `⚠ 変換元の OS 特有の場所にある素材が ${total} 件あります`),
+    el("p", { className: "title" }, `⚠ 受け取った側でリンクが切れる可能性がある素材が ${total} 件あります`),
+    el("p", { className: "advice" }, "外付けドライブや変換元の OS 特有の場所にあるため、受け取った側のパソコンに同じ場所がない可能性があります。渡す前に、素材も一緒に受け渡せているか確認してください。"),
     ...groups.map((g) => el("div", { className: "group" },
       el("div", {}, `${g.name}：${g.paths.length} 件`),
       el("div", { className: "advice" }, ADVICE[g.kind]),
